@@ -22,7 +22,7 @@ textarea{width:100%;max-width:950px}#status{display:block;margin-top:7px}
 </style></head><body>
 <div class="toolbar">
 <label>Month</label><select id="month"></select><label>Year</label><input id="year" type="number" min="2000" max="2100" style="width:90px">
-<button id="print">Print / Save PDF</button><button class="secondary" id="clearMonth">Clear this month</button>
+<button id="print">Print / Save PDF</button><button id="saveBackup">Save Backup (.json)</button><button class="secondary" id="restoreBackup">Restore Backup</button><input id="backupFile" type="file" accept="application/json,.json" style="display:none"><button class="secondary" id="clearMonth">Clear this month</button>
 <label>Reset specific date</label><input id="resetDate" type="date"><button class="secondary" id="resetDay">Reset selected date</button>
 <div class="wide"><strong>Copy / Paste Daily Readings</strong><br>
 <label>Target date</label> <input id="pasteDate" type="date">
@@ -43,8 +43,8 @@ const key=(y,m,d,h,s,t)=>"labasan-water-"+y+"-"+(m+1)+"-"+d+"-"+h+"-"+s+"-"+t;
 const timeName=h=>h===0?"12MN":h<12?h+"AM":h===12?"12NN":(h-12)+"PM";
 function render(){
  const m=+$("month").value,y=+$("year").value||today.getFullYear(),last=days(y,m),root=$("pages");root.innerHTML="";
- for(let first=1,pageNo=1;first<=last;first+=15,pageNo++){
-  const end=Math.min(first+14,last),section=document.createElement("section");section.className="page";
+ for(let first=1,pageNo=1;first<=last;first+=16,pageNo++){
+  const end=Math.min(first+15,last),section=document.createElement("section");section.className="page";
   let html='<div style="display:flex;justify-content:space-between;margin-bottom:8px"><b>LABASAN PUMPING STATION: WATER ELEVATION</b><span>FOR THE MONTH: '+months[m].toUpperCase()+'</span></div><table><thead><tr><th class="time"></th>';
   for(let d=first;d<=end;d++)html+='<th colspan="2">'+d+'</th>';html+='</tr></thead><tbody>';
   for(let h=0;h<24;h++){html+='<tr><td class="time">'+timeName(h)+'</td>';
@@ -59,6 +59,41 @@ function render(){
  root.querySelectorAll("input[data-key]").forEach(inp=>inp.addEventListener("input",()=>localStorage.setItem(inp.dataset.key,inp.value)));
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+function collectBackup(){
+ const entries={};
+ for(let i=0;i<localStorage.length;i++){
+  const k=localStorage.key(i);
+  if(k&&k.startsWith("labasan-water-"))entries[k]=localStorage.getItem(k);
+ }
+ return {app:"Labasan P/S Water Elevation Logbook",version:1,createdAt:new Date().toISOString(),entries};
+}
+$("saveBackup").onclick=()=>{
+ try{
+  const data=JSON.stringify(collectBackup(),null,2);
+  const blob=new Blob([data],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download="labasan-elevation-backup-"+iso(new Date())+".json";
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  $("status").textContent="Nagawa ang JSON backup. Itago ang file sa ligtas na lugar.";
+ }catch(e){$("status").textContent="Hindi nagawa ang backup: "+e.message}
+};
+$("restoreBackup").onclick=()=>$("backupFile").click();
+$("backupFile").addEventListener("change",async()=>{
+ const file=$("backupFile").files&&$("backupFile").files[0];if(!file)return;
+ try{
+  const data=JSON.parse(await file.text());
+  if(!data||data.app!=="Labasan P/S Water Elevation Logbook"||!data.entries||typeof data.entries!=="object"||Array.isArray(data.entries))throw new Error("Hindi valid na Labasan backup file.");
+  const pairs=Object.entries(data.entries).filter(([k,v])=>k.startsWith("labasan-water-")&&(typeof v==="string"||v===null));
+  if(!pairs.length)throw new Error("Walang saved readings sa backup.");
+  if(!confirm("I-restore ang "+pairs.length+" saved fields? Ang kaparehong dates/fields ay mapapalitan."))return;
+  pairs.forEach(([k,v])=>{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)});
+  render();$("status").textContent="Na-restore ang "+pairs.length+" saved fields mula sa backup.";
+ }catch(e){$("status").textContent="Hindi na-restore: "+e.message}
+ finally{$("backupFile").value=""}
+});
+
 $("month").addEventListener("change",render);$("year").addEventListener("change",render);
 $("print").onclick=()=>{if(window.AndroidPrint&&AndroidPrint.printPage)AndroidPrint.printPage();else window.print();};
 function clearDate(y,m,d){for(let h=0;h<24;h++){for(let s=0;s<2;s++)localStorage.removeItem(key(y,m,d,h,s,"level"));localStorage.removeItem(key(y,m,d,h,0,"remarks"))}}
